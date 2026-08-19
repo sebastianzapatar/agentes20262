@@ -6,6 +6,31 @@
 #   docker compose run --rm app ingest
 #   docker compose run --rm app chat
 
+# La CLI y la API son la misma aplicación con distinto punto de entrada, así
+# que comparten configuración mediante un ancla YAML.
+x-app-env: &app-env
+  OLLAMA_BASE_URL: http://ollama:11434
+  LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
+  EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+  VECTOR_BACKEND: chroma
+  CHROMA_HOST: chroma
+  CHROMA_PORT: "8000"
+  CHROMA_COLLECTION: ${CHROMA_COLLECTION:-documentos}
+  CHROMA_LOCAL_PATH: /app/chroma_local
+  DOCS_PATH: /app/docs
+  CHUNK_SIZE: ${CHUNK_SIZE:-1000}
+  CHUNK_OVERLAP: ${CHUNK_OVERLAP:-150}
+  RETRIEVER_K: ${RETRIEVER_K:-4}
+  TEMPERATURE: ${TEMPERATURE:-0.1}
+
+x-app-volumes: &app-volumes
+  # Tus documentos, editables desde el Finder sin reconstruir la imagen.
+  - ./docs:/app/docs
+  # Código en caliente: cambiar un .py no obliga a rehacer la imagen.
+  - ./app:/app/app
+  # Respaldo embebido de Chroma por si el servidor no está disponible.
+  - chroma_embedded:/app/chroma_local
+
 services:
   # --- Servidor de modelos locales ------------------------------------------
   ollama:
@@ -72,28 +97,25 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
-    environment:
-      OLLAMA_BASE_URL: http://ollama:11434
-      LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
-      EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
-      CHROMA_HOST: chroma
-      CHROMA_PORT: "8000"
-      CHROMA_COLLECTION: ${CHROMA_COLLECTION:-documentos}
-      CHROMA_LOCAL_PATH: /app/chroma_local
-      DOCS_PATH: /app/docs
-      CHUNK_SIZE: ${CHUNK_SIZE:-1000}
-      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-150}
-      RETRIEVER_K: ${RETRIEVER_K:-4}
-      TEMPERATURE: ${TEMPERATURE:-0.1}
-    volumes:
-      # Tus documentos, editables desde el Finder sin reconstruir la imagen.
-      - ./docs:/app/docs
-      # Código en caliente: cambiar un .py no obliga a rehacer la imagen.
-      - ./app:/app/app
-      # Respaldo embebido de Chroma por si el servidor no está disponible.
-      - chroma_embedded:/app/chroma_local
+    environment: *app-env
+    volumes: *app-volumes
     stdin_open: true
     tty: true
+
+  # --- API HTTP (FastAPI + uvicorn) -----------------------------------------
+  api:
+    build: .
+    container_name: rag-api
+    command: ["api"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment: *app-env
+    ports:
+      # 8001 en el anfitrión: el 8000 lo ocupa Chroma en esta variante.
+      - "8001:8000"
+    volumes: *app-volumes
+    restart: unless-stopped
 
   # --- Presentación (reveal.js) ---------------------------------------------
   slides:

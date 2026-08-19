@@ -541,12 +541,12 @@ store.similarity_search(
   <table>
     <thead><tr><th style="width:15%">Opción</th><th style="width:16%">Modelo</th><th style="width:34%">Fuerte en</th><th>Cuándo elegirla</th></tr></thead>
     <tbody>
-      <tr><td><strong>Chroma</strong></td><td>Embebida o servidor</td><td>Arranque inmediato, API mínima</td><td>Prototipos, proyectos medianos <span class="badge badge-good">la nuestra</span></td></tr>
+      <tr><td><strong>Chroma</strong></td><td>Embebida o servidor</td><td>Arranque inmediato, API mínima</td><td>Prototipos, proyectos medianos <span class="badge badge-good">variante 1</span></td></tr>
       <tr><td><strong>FAISS</strong></td><td>Librería</td><td>Velocidad pura, soporte GPU</td><td>Investigación, índices en memoria</td></tr>
       <tr><td><strong>Qdrant</strong></td><td>Servidor</td><td>Filtrado avanzado, escrito en Rust</td><td>Producción con metadatos complejos</td></tr>
       <tr><td><strong>Weaviate</strong></td><td>Servidor</td><td>Búsqueda híbrida integrada</td><td>Cuando hace falta léxico + semántico</td></tr>
       <tr><td><strong>Milvus</strong></td><td>Distribuida</td><td>Miles de millones de vectores</td><td>Escala muy grande</td></tr>
-      <tr><td><strong>pgvector</strong></td><td>Extensión de Postgres</td><td>Vectores junto a tus datos relacionales</td><td>Si ya tienes Postgres y no quieres otro servicio</td></tr>
+      <tr><td><strong>pgvector</strong></td><td>Extensión de Postgres</td><td>Vectores junto a tus datos relacionales</td><td>Si ya tienes Postgres y no quieres otro servicio <span class="badge badge-good">variante 2</span></td></tr>
       <tr><td><strong>Pinecone</strong></td><td>SaaS gestionado</td><td>Cero operaciones</td><td>Si no quieres administrar infraestructura</td></tr>
     </tbody>
   </table>
@@ -643,8 +643,8 @@ splitter = RecursiveCharacterTextSplitter(
   <h2>Arquitectura</h2>
   <div class="flow" style="margin-top:1.5em">
     <div class="flow-step" style="border-top-color:var(--series-3)">
-      <span class="t">app</span>
-      <span class="d">Python 3.12<br>LangChain + LangGraph<br>La CLI del agente</span>
+      <span class="t">app / api</span>
+      <span class="d">Python 3.12<br>LangChain + LangGraph<br>CLI y FastAPI (:8001)</span>
     </div>
     <span class="flow-arrow">⇄</span>
     <div class="flow-step">
@@ -672,6 +672,62 @@ splitter = RecursiveCharacterTextSplitter(
       <p>Ningún dato sale de la máquina. Ni el documento, ni la pregunta, ni la respuesta. Relevante para información confidencial.</p>
     </div>
   </div>
+</section>
+
+<section>
+  <h2>La misma app, dos bases vectoriales</h2>
+  <p>El proyecto trae las dos variantes. <strong>El agente, las herramientas y la ingesta no cambian ni una línea</strong> — solo el módulo que implementa el almacén.</p>
+  <table style="margin-top:0.8em">
+    <thead><tr><th style="width:22%"></th><th style="width:39%">Variante 1</th><th>Variante 2</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Motor</strong></td><td>Chroma</td><td>PostgreSQL 17 + pgvector</td></tr>
+      <tr><td><strong>Compose</strong></td><td><code>compose.yml</code></td><td><code>compose2.yml</code></td></tr>
+      <tr><td><strong>Módulo</strong></td><td><code>app/vectorstore.py</code></td><td><code>app/vectorstore_pg.py</code></td></tr>
+      <tr><td><strong>Se elige con</strong></td><td colspan="2"><code>VECTOR_BACKEND=chroma</code> · <code>VECTOR_BACKEND=pgvector</code></td></tr>
+    </tbody>
+  </table>
+  <pre style="margin-top:0.8em"><code class="language-python" data-trim data-noescape>
+# app/backend.py — todo el resto de la aplicación importa desde aquí
+if config.VECTOR_BACKEND == "pgvector":
+    from app import vectorstore_pg as impl
+else:
+    from app import vectorstore as impl
+  </code></pre>
+  <p class="muted">Esa es exactamente la promesa de LangChain llevada al proyecto: el código de arriba no sabe qué motor hay debajo.</p>
+  <aside class="notes">
+    Buen momento para insistir en que la abstracción no es gratuita: pgvector no
+    ofrece borrado por filtro de metadatos, así que ese método hubo que
+    escribirlo en SQL. Las interfaces uniformes tienen costuras.
+  </aside>
+</section>
+
+<section>
+  <h2>pgvector: vectores dentro de Postgres</h2>
+  <p>No es una base de datos aparte, es una <strong>extensión</strong>. Añade el tipo <code>vector</code>, operadores de distancia e índices ANN a un Postgres normal.</p>
+  <div class="grid grid-3" style="margin-top:1em">
+    <div class="card accent-1">
+      <h4>Operadores</h4>
+      <p><code>&lt;-&gt;</code> euclidiana<br><code>&lt;=&gt;</code> coseno<br><code>&lt;#&gt;</code> producto interno</p>
+    </div>
+    <div class="card accent-2">
+      <h4>Índices</h4>
+      <p>HNSW e IVFFlat, igual que una base vectorial dedicada.</p>
+    </div>
+    <div class="card accent-3">
+      <h4>Lo que ganas gratis</h4>
+      <p>Transacciones, JOINs con tus tablas, backups, permisos y réplicas ya resueltos.</p>
+    </div>
+  </div>
+  <pre style="margin-top:1em"><code class="language-sql" data-trim data-noescape>
+-- Las dos tablas que crea langchain_postgres
+langchain_pg_collection  -- una fila por colección
+langchain_pg_embedding   -- embedding, document, cmetadata jsonb, collection_id
+
+-- Cuántos fragmentos hay por documento
+SELECT cmetadata->>'fuente' AS fuente, count(*)
+FROM langchain_pg_embedding GROUP BY 1 ORDER BY 2 DESC;
+  </code></pre>
+  <p class="muted"><strong>Cuándo elegirlo:</strong> si tu organización ya opera Postgres, evitas añadir un servicio nuevo al inventario — y los vectores quedan junto a los datos con los que hay que cruzarlos.</p>
 </section>
 
 <section>
@@ -744,6 +800,33 @@ docker compose run --rm app chat
     <div class="card accent-3"><h4>Dos herramientas</h4><p>«Suma los costes del informe» → busca y luego calcula.</p></div>
   </div>
   <p class="muted" style="margin-top:1.2em">La CLI muestra en vivo qué herramienta invoca el agente en cada paso — es lo que hace visible el razonamiento.</p>
+</section>
+
+<section>
+  <h2>La API</h2>
+  <p>El mismo agente, expuesto por HTTP con <strong>FastAPI</strong>. Documentación interactiva autogenerada en <code>/docs</code>.</p>
+  <table style="margin-top:0.6em">
+    <thead><tr><th style="width:10%">Método</th><th style="width:26%">Ruta</th><th>Para qué</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET</code></td><td><code>/salud</code></td><td>Diagnóstico de Ollama y de la base vectorial</td></tr>
+      <tr><td><code>POST</code></td><td><code>/buscar</code></td><td>Búsqueda semántica <strong>sin</strong> pasar por el LLM</td></tr>
+      <tr><td><code>POST</code></td><td><code>/preguntar</code></td><td>Un turno del agente, respuesta completa</td></tr>
+      <tr><td><code>POST</code></td><td><code>/preguntar/stream</code></td><td>Igual, emitiendo los pasos por SSE</td></tr>
+      <tr><td><code>POST</code></td><td><code>/ingesta</code></td><td>Indexar los documentos de <code>docs/</code></td></tr>
+    </tbody>
+  </table>
+  <pre style="margin-top:0.8em"><code class="language-bash" data-trim data-noescape>
+curl -X POST http://localhost:8001/preguntar \
+  -H 'Content-Type: application/json' \
+  -d '{"pregunta": "¿Qué dice el informe sobre los costes?"}'
+  </code></pre>
+  <p class="muted"><code>/buscar</code> es el endpoint para <em>ajustar</em> el RAG: enseña los fragmentos y sus distancias sin el ruido de la generación, así se afinan <code>k</code> y el tamaño de fragmento viendo el efecto directo.</p>
+  <aside class="notes">
+    Detalle que merece mención: los endpoints son `def`, no `async def`. La
+    inferencia es bloqueante, así que FastAPI los manda a su pool de hilos. Con
+    `async def` y una llamada bloqueante dentro, se congelaría el bucle de
+    eventos y todas las peticiones se serializarían.
+  </aside>
 </section>
 
 <section>

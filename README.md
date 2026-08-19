@@ -14,8 +14,9 @@ instalar Python, Ollama ni Chroma.
 |---|---|---|
 | Modelo de lenguaje | Qwen 2.5 vía **Ollama** | Razona y decide qué herramienta usar |
 | Embeddings | `nomic-embed-text` vía Ollama | Convierte texto en vectores de 768 dims |
-| Base vectorial | **Chroma** | Guarda los vectores y busca por similitud |
+| Base vectorial | **Chroma** o **PostgreSQL+pgvector** | Guarda los vectores y busca por similitud — dos variantes intercambiables |
 | Orquestación | **LangChain** + **LangGraph** | Conecta modelo, datos y herramientas |
+| API HTTP | **FastAPI** + uvicorn | Expone el agente por red, con Swagger UI |
 | Dependencias | **uv** | Resolución e instalación, con lockfile reproducible |
 | Presentación | **reveal.js** | Diapositivas sobre LangChain y bases vectoriales |
 
@@ -75,9 +76,73 @@ docker compose run --rm app ingest              # indexar docs/
 docker compose run --rm app ingest --reset      # reconstruir la base desde cero
 docker compose run --rm app chat                # conversación interactiva
 docker compose run --rm app ask "tu pregunta"   # una sola pregunta
+docker compose run --rm app api                 # servidor FastAPI (ya corre solo)
 ```
 
+Añade `-f compose2.yml` a cualquiera de estos comandos para usar la variante de
+PostgreSQL+pgvector.
+
 Dentro del chat: `/salir`, `/limpiar`, `/docs`, `/ayuda`.
+
+---
+
+## La API (FastAPI)
+
+Además de la CLI, el agente se expone por HTTP. El servicio `api` arranca solo
+con `docker compose up -d`, en **http://localhost:8001** (el 8000 lo ocupa
+Chroma en la variante 1).
+
+Documentación interactiva autogenerada: **http://localhost:8001/docs**
+
+| Método | Ruta | Para qué |
+|---|---|---|
+| `GET` | `/` | Info del servicio y backend activo |
+| `GET` | `/salud` | Diagnóstico de Ollama y de la base vectorial |
+| `GET` | `/documentos` | Qué documentos hay indexados |
+| `POST` | `/buscar` | Búsqueda semántica **sin** pasar por el LLM |
+| `POST` | `/preguntar` | Un turno del agente, respuesta completa |
+| `POST` | `/preguntar/stream` | Igual, pero emitiendo los pasos por SSE |
+| `DELETE` | `/sesiones/{id}` | Borrar el historial de una sesión |
+| `POST` | `/ingesta` | Indexar `docs/` (lento y bloqueante) |
+
+```bash
+# Preguntar
+curl -X POST http://localhost:8001/preguntar \
+  -H 'Content-Type: application/json' \
+  -d '{"pregunta": "¿Qué documentos tienes?"}'
+
+# Ver los pasos del agente en vivo
+curl -N -X POST http://localhost:8001/preguntar/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"pregunta": "Suma los costes del informe"}'
+
+# Ver qué recupera el retriever, sin generación de por medio
+curl -X POST http://localhost:8001/buscar \
+  -H 'Content-Type: application/json' \
+  -d '{"consulta": "consumo energético", "k": 4}'
+```
+
+`/buscar` es el endpoint más útil para **ajustar el RAG**: te muestra los
+fragmentos y sus distancias sin el ruido que añade la generación, así puedes
+afinar `k`, `CHUNK_SIZE` y `CHUNK_OVERLAP` viendo el efecto directo.
+
+### Conversaciones con memoria
+
+Si no envías `sesion`, la API crea una y te devuelve su id. Reenvíalo en las
+siguientes peticiones para mantener el hilo:
+
+```json
+{"pregunta": "¿y cuánto es eso en dólares?", "sesion": "a3f9c1e0b2d4"}
+```
+
+Las sesiones viven **en memoria del proceso** (máximo 50, se descartan las más
+antiguas). Reiniciar el contenedor las borra; para algo persistente habría que
+usar un checkpointer de LangGraph sobre Redis o Postgres.
+
+> Los endpoints están declarados como `def` y no `async def` a propósito: la
+> inferencia del LLM es bloqueante, así que FastAPI los ejecuta en su pool de
+> hilos. Un `async def` con una llamada bloqueante dentro congelaría el bucle de
+> eventos y serializaría todas las peticiones.
 
 ---
 
@@ -143,6 +208,59 @@ Docker Desktop debería tener al menos **8 GB de RAM** asignados
 
 ---
 
+## Variante 2: PostgreSQL + pgvector
+
+El proyecto trae **dos bases de datos vectoriales intercambiables**. La
+aplicación es la misma —mismo agente, mismas herramientas, misma ingesta—; solo
+cambia el módulo que implementa el almacén vectorial:
+
+| | Variante 1 | Variante 2 |
+|---|---|---|
+| Archivo | `compose.yml` | `compose2.yml` |
+| Motor | Chroma | PostgreSQL 17 + pgvector |
+| Módulo | `app/vectorstore.py` | `app/vectorstore_pg.py` |
+| Variable | `VECTOR_BACKEND=chroma` | `VECTOR_BACKEND=pgvector` |
+| Puerto | 8000 | 5432 |
+
+```bash
+docker compose -f compose2.yml up -d
+docker compose -f compose2.yml run --rm app ingest
+docker compose -f compose2.yml run --rm app chat
+```
+
+Ambas variantes **comparten el volumen de modelos de Ollama**, así que los ~5 GB
+se descargan una sola vez. Como también comparten nombres de servicio y puertos,
+son alternativas y no simultáneas: levantar una recrea los contenedores comunes
+de la otra, y verás un aviso de *orphan containers* al alternar. Es esperable.
+
+### Por qué pgvector
+
+pgvector no es una base de datos aparte: es una extensión que añade a
+PostgreSQL el tipo `vector`, operadores de distancia (`<->` euclidiana, `<=>`
+coseno, `<#>` producto interno) e índices ANN (HNSW e IVFFlat). Los vectores
+viven junto a tus datos relacionales, con transacciones, JOINs, backups y
+permisos ya resueltos. Si tu organización ya opera Postgres, evita añadir un
+servicio nuevo al inventario.
+
+`langchain_postgres.PGVector` crea dos tablas y la extensión sola en la primera
+ingesta:
+
+```
+langchain_pg_collection   una fila por colección
+langchain_pg_embedding    una fila por fragmento (embedding, document,
+                          cmetadata jsonb, collection_id)
+```
+
+Puedes inspeccionarlas directamente — el puerto 5432 está expuesto:
+
+```bash
+docker compose -f compose2.yml exec postgres psql -U rag -d rag \
+  -c "SELECT cmetadata->>'fuente' AS fuente, count(*)
+      FROM langchain_pg_embedding GROUP BY 1 ORDER BY 2 DESC;"
+```
+
+---
+
 ## Dependencias con uv
 
 Todas las dependencias se resuelven e instalan con **uv**, dentro y fuera de
@@ -197,7 +315,8 @@ uv run python -m app.main chat
 
 ```
 .
-├── docker-compose.yml     # ollama + chroma + app + slides
+├── compose.yml            # variante 1: ollama + chroma + app + slides
+├── compose2.yml           # variante 2: ollama + postgres/pgvector + app + slides
 ├── Dockerfile             # imagen de la aplicación (uv + Python 3.12)
 ├── pyproject.toml         # dependencias declaradas
 ├── uv.lock                # versiones exactas resueltas por uv
@@ -208,10 +327,13 @@ uv run python -m app.main chat
 │   └── index.html         # presentación reveal.js
 └── app/
     ├── config.py          # configuración por variables de entorno
-    ├── vectorstore.py     # conexión a Chroma (servidor o embebido)
+    ├── backend.py         # elige el almacén vectorial según VECTOR_BACKEND
+    ├── vectorstore.py     # backend 1: Chroma (servidor o embebido)
+    ├── vectorstore_pg.py  # backend 2: PostgreSQL + pgvector
     ├── ingest.py          # cargar → fragmentar → embeber → almacenar
     ├── tools.py           # las herramientas del agente
     ├── agent.py           # bucle ReAct con LangGraph
+    ├── api.py             # API HTTP con FastAPI
     └── main.py            # CLI
 ```
 

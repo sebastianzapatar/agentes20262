@@ -68,10 +68,9 @@ def get_vectorstore() -> PGVector:
         # y filtrar por ellos con operadores nativos de Postgres.
         use_jsonb=True,
     )
-    modo_activo = (
-        f"PostgreSQL + pgvector "
-        f"({config.POSTGRES_HOST}:{config.POSTGRES_PORT}/{config.POSTGRES_DB})"
-    )
+    # Solo el detalle de conexión: quien lo imprime ya antepone el nombre
+    # del backend (backend.NOMBRE).
+    modo_activo = f"{config.POSTGRES_HOST}:{config.POSTGRES_PORT}/{config.POSTGRES_DB}"
     return store
 
 

@@ -15,6 +15,33 @@
 # contenedores comunes de la otra.
 name: pythonproject
 
+# La CLI y la API son la misma aplicación con distinto punto de entrada, así
+# que comparten configuración mediante un ancla YAML.
+x-app-env: &app-env
+  # Lo único que distingue esta variante de la de Chroma.
+  VECTOR_BACKEND: pgvector
+
+  OLLAMA_BASE_URL: http://ollama:11434
+  LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
+  EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: ${POSTGRES_DB:-rag}
+  POSTGRES_USER: ${POSTGRES_USER:-rag}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag}
+  PG_COLLECTION: ${PG_COLLECTION:-documentos}
+
+  DOCS_PATH: /app/docs
+  CHUNK_SIZE: ${CHUNK_SIZE:-1000}
+  CHUNK_OVERLAP: ${CHUNK_OVERLAP:-150}
+  RETRIEVER_K: ${RETRIEVER_K:-4}
+  TEMPERATURE: ${TEMPERATURE:-0.1}
+
+x-app-volumes: &app-volumes
+  - ./docs:/app/docs
+  - ./app:/app/app
+
 services:
   # --- Servidor de modelos locales (idéntico a compose.yml) -------------------
   ollama:
@@ -88,31 +115,27 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-    environment:
-      # Lo único que distingue esta variante de la de Chroma.
-      VECTOR_BACKEND: pgvector
-
-      OLLAMA_BASE_URL: http://ollama:11434
-      LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
-      EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
-
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: ${POSTGRES_DB:-rag}
-      POSTGRES_USER: ${POSTGRES_USER:-rag}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag}
-      PG_COLLECTION: ${PG_COLLECTION:-documentos}
-
-      DOCS_PATH: /app/docs
-      CHUNK_SIZE: ${CHUNK_SIZE:-1000}
-      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-150}
-      RETRIEVER_K: ${RETRIEVER_K:-4}
-      TEMPERATURE: ${TEMPERATURE:-0.1}
-    volumes:
-      - ./docs:/app/docs
-      - ./app:/app/app
+    environment: *app-env
+    volumes: *app-volumes
     stdin_open: true
     tty: true
+
+  # --- API HTTP (FastAPI + uvicorn) -----------------------------------------
+  api:
+    build: .
+    container_name: rag-api
+    command: ["api"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment: *app-env
+    ports:
+      # Mismo puerto que en la variante 1, para que el cliente no cambie.
+      - "8001:8000"
+    volumes: *app-volumes
+    restart: unless-stopped
 
   # --- Presentación (reveal.js) ---------------------------------------------
   slides:

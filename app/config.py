@@ -45,7 +45,7 @@ TEMPERATURE = _float("TEMPERATURE", 0.1)
 
 
 # --- Qué base de datos vectorial usar ---------------------------------------
-# "chroma"   -> docker-compose.yml  (servicio chroma)
+# "chroma"   -> compose.yml         (servicio chroma)
 # "pgvector" -> compose2.yml        (servicio postgres con la extensión vector)
 #
 # El resto de la aplicación (ingesta, herramientas, agente) es idéntico: solo
