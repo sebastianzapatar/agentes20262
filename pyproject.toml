@@ -1,0 +1,50 @@
+[project]
+name = "pythonproject"
+version = "0.1.0"
+description = "Agente RAG con LangChain + Qwen (Ollama) y base de datos vectorial Chroma"
+requires-python = ">=3.11"
+dependencies = [
+    # --- Núcleo de LangChain ---
+    "langchain>=0.3.7,<0.4",
+    "langchain-core>=0.3.15,<0.4",
+    "langchain-community>=0.3.5,<0.4",
+    "langchain-text-splitters>=0.3.2,<0.4",
+
+    # --- Integración con Ollama (Qwen + embeddings) ---
+    "langchain-ollama>=0.2.0,<0.4",
+
+    # --- Base de datos vectorial ---
+    # El cliente de chromadb debe ir alineado con la versión del servidor
+    # fijada en compose.yml (imagen chromadb/chroma).
+    "langchain-chroma>=0.2.4,<0.3",
+    "chromadb>=1.0.0,<2",
+
+    # --- Base de datos vectorial alternativa (compose2.yml) ---
+    # PostgreSQL con la extensión pgvector. psycopg 3 es el driver.
+    "langchain-postgres>=0.0.13,<1",
+    "psycopg[binary]>=3.2.3",
+
+    # --- Grafo de ejecución del agente (bucle ReAct) ---
+    "langgraph>=0.2.50,<0.7",
+
+    # --- Carga de documentos ---
+    "pypdf>=5.1.0",
+    "docx2txt>=0.8",
+    "beautifulsoup4>=4.12.3",
+    "lxml>=5.3.0",
+
+    # --- Utilidades ---
+    "python-dotenv>=1.0.1",
+    "rich>=13.9.0",
+    "httpx>=0.27.0",
+    # zoneinfo necesita la base de datos de zonas horarias, que la imagen
+    # python:slim no garantiza traer a nivel de sistema.
+    "tzdata>=2024.2",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"]

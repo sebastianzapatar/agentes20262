@@ -1,0 +1,131 @@
+# VARIANTE 2 — la base de datos vectorial es PostgreSQL con la extensión pgvector.
+#
+# Misma aplicación, mismo agente, mismas herramientas: lo único que cambia es
+# VECTOR_BACKEND=pgvector, que hace que se cargue app/vectorstore_pg.py en vez
+# de app/vectorstore.py.
+#
+#   docker compose -f compose2.yml up -d
+#   docker compose -f compose2.yml run --rm app ingest
+#   docker compose -f compose2.yml run --rm app chat
+#
+# El nombre de proyecto es el mismo que en compose.yml a propósito: así ambas
+# variantes comparten el volumen `ollama_models` y los modelos (~5 GB) se
+# descargan UNA sola vez. Como también comparten nombres de servicio y puertos,
+# las dos variantes son alternativas, no simultáneas: levantar una recrea los
+# contenedores comunes de la otra.
+name: pythonproject
+
+services:
+  # --- Servidor de modelos locales (idéntico a compose.yml) -------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  # --- Descarga de modelos (se ejecuta una vez y termina) --------------------
+  model-init:
+    image: ollama/ollama:latest
+    container_name: rag-model-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "→ Descargando LLM: ${LLM_MODEL:-qwen2.5:7b}"
+        ollama pull "${LLM_MODEL:-qwen2.5:7b}"
+        echo "→ Descargando embeddings: ${EMBED_MODEL:-nomic-embed-text}"
+        ollama pull "${EMBED_MODEL:-nomic-embed-text}"
+        echo "✓ Modelos listos."
+    restart: "no"
+
+  # --- Base de datos vectorial: PostgreSQL + pgvector ------------------------
+  postgres:
+    # Imagen oficial de pgvector: es Postgres 17 con la extensión ya compilada
+    # y disponible. Con la imagen `postgres` normal habría que instalarla.
+    image: pgvector/pgvector:pg17
+    container_name: rag-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rag}
+      POSTGRES_USER: ${POSTGRES_USER:-rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag}
+    ports:
+      # Expuesto al anfitrión para poder inspeccionar las tablas con psql,
+      # DBeaver o el cliente de base de datos de PyCharm.
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      # La app espera a que Postgres acepte conexiones de verdad, no solo a
+      # que el contenedor esté arrancado.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rag} -d ${POSTGRES_DB:-rag}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  # --- Aplicación (CLI del agente) ------------------------------------------
+  app:
+    build: .
+    container_name: rag-app
+    profiles: ["cli"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      # Lo único que distingue esta variante de la de Chroma.
+      VECTOR_BACKEND: pgvector
+
+      OLLAMA_BASE_URL: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
+      EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-rag}
+      POSTGRES_USER: ${POSTGRES_USER:-rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag}
+      PG_COLLECTION: ${PG_COLLECTION:-documentos}
+
+      DOCS_PATH: /app/docs
+      CHUNK_SIZE: ${CHUNK_SIZE:-1000}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-150}
+      RETRIEVER_K: ${RETRIEVER_K:-4}
+      TEMPERATURE: ${TEMPERATURE:-0.1}
+    volumes:
+      - ./docs:/app/docs
+      - ./app:/app/app
+    stdin_open: true
+    tty: true
+
+  # --- Presentación (reveal.js) ---------------------------------------------
+  slides:
+    image: nginx:alpine
+    container_name: rag-slides
+    ports:
+      - "8080:80"
+    volumes:
+      - ./slides:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
+volumes:
+  # Mismo nombre que en compose.yml -> mismos modelos, sin volver a descargar.
+  ollama_models:
+  # Exclusivo de esta variante.
+  pg_data:

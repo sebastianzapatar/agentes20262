@@ -1,0 +1,111 @@
+# Todo el sistema corre en contenedores: no hace falta instalar Python,
+# Ollama ni Chroma en la máquina anfitriona. Solo Docker.
+#
+#   docker compose up -d              -> levanta Ollama, Chroma, diapositivas
+#                                        y descarga los modelos
+#   docker compose run --rm app ingest
+#   docker compose run --rm app chat
+
+services:
+  # --- Servidor de modelos locales ------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: rag-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      # Los modelos pesan varios GB: el volumen evita volver a descargarlos
+      # cada vez que se recrea el contenedor.
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  # --- Descarga de modelos (se ejecuta una vez y termina) --------------------
+  model-init:
+    image: ollama/ollama:latest
+    container_name: rag-model-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      # El CLI de ollama habla con el servidor del otro contenedor, así que la
+      # descarga queda guardada en el volumen de `ollama`.
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "→ Descargando LLM: ${LLM_MODEL:-qwen2.5:7b}"
+        ollama pull "${LLM_MODEL:-qwen2.5:7b}"
+        echo "→ Descargando embeddings: ${EMBED_MODEL:-nomic-embed-text}"
+        ollama pull "${EMBED_MODEL:-nomic-embed-text}"
+        echo "✓ Modelos listos."
+    restart: "no"
+
+  # --- Base de datos vectorial ----------------------------------------------
+  chroma:
+    # Versión fijada, y debe coincidir con el paquete `chromadb` de uv.lock.
+    # Un cliente y un servidor de ramas distintas hablan APIs incompatibles.
+    image: chromadb/chroma:1.5.9
+    container_name: rag-chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/data
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    restart: unless-stopped
+
+  # --- Aplicación (CLI del agente) ------------------------------------------
+  app:
+    build: .
+    container_name: rag-app
+    # `profiles` evita que `docker compose up` intente arrancar una CLI
+    # interactiva. Se usa siempre con `docker compose run`.
+    profiles: ["cli"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b}
+      EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      CHROMA_COLLECTION: ${CHROMA_COLLECTION:-documentos}
+      CHROMA_LOCAL_PATH: /app/chroma_local
+      DOCS_PATH: /app/docs
+      CHUNK_SIZE: ${CHUNK_SIZE:-1000}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP:-150}
+      RETRIEVER_K: ${RETRIEVER_K:-4}
+      TEMPERATURE: ${TEMPERATURE:-0.1}
+    volumes:
+      # Tus documentos, editables desde el Finder sin reconstruir la imagen.
+      - ./docs:/app/docs
+      # Código en caliente: cambiar un .py no obliga a rehacer la imagen.
+      - ./app:/app/app
+      # Respaldo embebido de Chroma por si el servidor no está disponible.
+      - chroma_embedded:/app/chroma_local
+    stdin_open: true
+    tty: true
+
+  # --- Presentación (reveal.js) ---------------------------------------------
+  slides:
+    image: nginx:alpine
+    container_name: rag-slides
+    ports:
+      - "8080:80"
+    volumes:
+      - ./slides:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
+volumes:
+  ollama_models:
+  chroma_data:
+  chroma_embedded:

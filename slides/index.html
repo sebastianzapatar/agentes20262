@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LangChain y Bases de Datos Vectoriales</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css" id="theme">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+
+<style>
+  /* ---------------------------------------------------------------------
+     Paleta: instancia oscura validada con el validador de dataviz
+     (3 slots categóricos, all-pairs, superficie #1a1a19 -> ALL CHECKS PASS).
+     Se define por rol, no por hex suelto.
+  --------------------------------------------------------------------- */
+  :root {
+    --surface-1:      #1a1a19;   /* superficie de figuras */
+    --page:           #0d0d0d;   /* plano de página */
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --gridline:       #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+
+    --series-1:       #3987e5;   /* azul   */
+    --series-2:       #d95926;   /* naranja*/
+    --series-3:       #199e70;   /* aqua   */
+    --series-4:       #c98500;   /* amarillo (solo fuera de scatter) */
+    --series-7:       #9085e9;   /* violeta  (solo fuera de scatter) */
+
+    --status-good:    #0ca30c;
+    --status-warning: #fab219;
+    --status-critical:#d03b3b;
+  }
+
+  .reveal {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 30px;
+    color: var(--text-secondary);
+  }
+  .reveal-viewport { background: var(--page); }
+
+  .reveal h1, .reveal h2, .reveal h3, .reveal h4 {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--text-primary);
+    text-transform: none;
+    letter-spacing: -0.02em;
+    font-weight: 650;
+  }
+  .reveal h1 { font-size: 2.1em; line-height: 1.1; }
+  .reveal h2 { font-size: 1.5em; margin-bottom: 0.5em; }
+  .reveal h3 { font-size: 1.15em; color: var(--text-secondary); font-weight: 600; }
+
+  .reveal section { text-align: left; }
+  .reveal .center { text-align: center; }
+
+  .reveal p, .reveal li { line-height: 1.5; }
+  .reveal ul, .reveal ol { display: block; margin-left: 1em; }
+  .reveal li { margin-bottom: 0.4em; }
+  .reveal strong { color: var(--text-primary); font-weight: 650; }
+  .reveal em { color: var(--series-1); font-style: normal; font-weight: 600; }
+
+  .lead { font-size: 1.15em; color: var(--text-primary); }
+  .muted { color: var(--text-muted); font-size: 0.8em; }
+  .kicker {
+    color: var(--series-1); font-size: 0.65em; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.6em;
+  }
+
+  /* --- Portada / separadores de sección --- */
+  .cover { text-align: center; }
+  .cover .sub { color: var(--text-secondary); font-size: 1.05em; margin-top: 0.6em; }
+  .divider { text-align: center; }
+  .divider .num {
+    font-size: 5em; font-weight: 700; color: var(--series-1);
+    line-height: 1; display: block; margin-bottom: 0.1em;
+  }
+
+  /* --- Código --- */
+  .reveal pre {
+    width: 100%; box-shadow: none; font-size: 0.52em; line-height: 1.45;
+    border: 1px solid var(--border); border-radius: 10px; margin: 0.6em 0;
+    background: var(--surface-1);
+  }
+  .reveal pre code {
+    padding: 1em 1.2em; border-radius: 10px; max-height: 520px;
+    background: var(--surface-1);
+  }
+  .reveal code:not(pre code) {
+    background: rgba(255,255,255,0.07); color: var(--series-1);
+    padding: 0.1em 0.35em; border-radius: 5px; font-size: 0.9em;
+  }
+
+  /* --- Tarjetas y rejillas --- */
+  .grid { display: grid; gap: 18px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px;
+  }
+  .card h4 { margin: 0 0 0.35em 0; font-size: 0.92em; }
+  .card p, .card ul { margin: 0; font-size: 0.76em; line-height: 1.45; }
+  .card ul { margin-left: 0.9em; }
+  .card.accent-1 { border-left: 3px solid var(--series-1); }
+  .card.accent-2 { border-left: 3px solid var(--series-2); }
+  .card.accent-3 { border-left: 3px solid var(--series-3); }
+  .card.accent-4 { border-left: 3px solid var(--series-4); }
+
+  /* --- Tablas --- */
+  .reveal table { font-size: 0.62em; border-collapse: collapse; width: 100%; }
+  .reveal table th {
+    text-align: left; color: var(--text-muted); font-weight: 600;
+    border-bottom: 1px solid var(--baseline); padding: 8px 12px;
+    text-transform: uppercase; font-size: 0.82em; letter-spacing: 0.06em;
+  }
+  .reveal table td {
+    padding: 8px 12px; border-bottom: 1px solid var(--gridline);
+    color: var(--text-secondary); vertical-align: top;
+  }
+  .reveal table td strong { color: var(--text-primary); }
+  .num-col { font-variant-numeric: tabular-nums; }
+
+  /* --- Diagramas de flujo (cajas + flechas) --- */
+  .flow { display: flex; align-items: stretch; gap: 10px; margin: 0.8em 0; }
+  .flow-step {
+    flex: 1; background: var(--surface-1); border: 1px solid var(--border);
+    border-top: 3px solid var(--series-1); border-radius: 10px;
+    padding: 14px 12px; text-align: center;
+  }
+  .flow-step .t { color: var(--text-primary); font-weight: 650; font-size: 0.78em; display: block; }
+  .flow-step .d { color: var(--text-muted); font-size: 0.62em; display: block; margin-top: 0.35em; line-height: 1.35; }
+  .flow-arrow { align-self: center; color: var(--baseline); font-size: 1.2em; }
+
+  .badge {
+    display: inline-block; font-size: 0.6em; font-weight: 700; padding: 3px 9px;
+    border-radius: 999px; letter-spacing: 0.04em;
+  }
+  .badge-good { background: rgba(12,163,12,0.16); color: var(--status-good); }
+  .badge-warn { background: rgba(250,178,25,0.16); color: var(--status-warning); }
+  .badge-bad  { background: rgba(208,59,59,0.18); color: var(--status-critical); }
+
+  /* --- Leyenda de figuras --- */
+  .legend { display: flex; gap: 22px; justify-content: center; margin-top: 6px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 7px; font-size: 0.62em; color: var(--text-secondary); }
+  .legend-swatch { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+  figure { margin: 0; }
+  figcaption { color: var(--text-muted); font-size: 0.6em; text-align: center; margin-top: 8px; }
+
+  .reveal .slide-number { background: transparent; color: var(--text-muted); font-size: 0.55em; }
+  .reveal .progress { color: var(--series-1); height: 3px; }
+</style>
+</head>
+
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ══════════════════ PORTADA ══════════════════ -->
+<section class="cover">
+  <p class="kicker">Construyendo un agente de IA local</p>
+  <h1>LangChain y Bases de<br>Datos Vectoriales</h1>
+  <p class="sub">De los embeddings al agente RAG — con Qwen, Ollama y Chroma</p>
+  <p class="muted" style="margin-top:2em">Todo ejecutándose en local, dentro de Docker</p>
+  <aside class="notes">
+    Objetivo de la sesión: entender por qué existen estas herramientas, no solo
+    cómo se usan. Al final habrá una demo de un agente funcionando sin conexión
+    a ninguna API externa.
+  </aside>
+</section>
+
+<!-- ══════════════════ AGENDA ══════════════════ -->
+<section>
+  <h2>Qué vamos a ver</h2>
+  <div class="grid grid-2">
+    <div class="card accent-1">
+      <h4>1 · LangChain</h4>
+      <p>Qué problema resuelve, sus bloques de construcción, y la diferencia real entre una <em>cadena</em> y un <em>agente</em>.</p>
+    </div>
+    <div class="card accent-2">
+      <h4>2 · Bases vectoriales</h4>
+      <p>Qué es un embedding, cómo se mide la similitud y por qué hace falta un índice especializado.</p>
+    </div>
+    <div class="card accent-3">
+      <h4>3 · RAG</h4>
+      <p>El pipeline completo, la fragmentación del texto y los errores que más se repiten.</p>
+    </div>
+    <div class="card accent-4">
+      <h4>4 · El proyecto</h4>
+      <p>Arquitectura en Docker, el código comentado y una demo en vivo.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════ PARTE 1 ══════════════════ -->
+<section class="divider">
+  <span class="num">1</span>
+  <h2>LangChain</h2>
+  <p class="muted">El andamiaje entre un modelo de lenguaje y una aplicación real</p>
+</section>
+
+<section>
+  <h2>El problema: un LLM solo no basta</h2>
+  <p>Un modelo de lenguaje, por potente que sea, tiene cuatro límites estructurales:</p>
+  <div class="grid grid-2" style="margin-top:1em">
+    <div class="card accent-2">
+      <h4>No conoce tus datos</h4>
+      <p>Su conocimiento terminó en la fecha de corte del entrenamiento. Tu informe de la semana pasada no existe para él.</p>
+    </div>
+    <div class="card accent-2">
+      <h4>No puede actuar</h4>
+      <p>No consulta una API, no lee un archivo, no ejecuta un cálculo. Solo genera texto.</p>
+    </div>
+    <div class="card accent-2">
+      <h4>No recuerda</h4>
+      <p>Cada llamada es independiente. La "conversación" es una ilusión que construye la aplicación.</p>
+    </div>
+    <div class="card accent-2">
+      <h4>Alucina con seguridad</h4>
+      <p>Cuando no sabe, inventa — y lo hace con el mismo tono de confianza que cuando acierta.</p>
+    </div>
+  </div>
+  <aside class="notes">
+    Los cuatro límites se atacan con las mismas dos ideas: darle contexto
+    recuperado (RAG) y darle herramientas (agentes). LangChain es el pegamento.
+  </aside>
+</section>
+
+<section>
+  <h2>Qué es LangChain</h2>
+  <p class="lead">Un <strong>framework de orquestación</strong>: estandariza cómo se conectan modelos, fuentes de datos y herramientas, para que cambiar una pieza no obligue a reescribir la aplicación.</p>
+  <div class="grid grid-3" style="margin-top:1.2em">
+    <div class="card">
+      <h4 style="color:var(--series-1)">Abstracción</h4>
+      <p>La misma interfaz para OpenAI, Anthropic, Ollama o Hugging Face. Cambiar de modelo es cambiar una línea.</p>
+    </div>
+    <div class="card">
+      <h4 style="color:var(--series-1)">Composición</h4>
+      <p>Piezas pequeñas que se encadenan: prompt → modelo → parser → herramienta.</p>
+    </div>
+    <div class="card">
+      <h4 style="color:var(--series-1)">Integraciones</h4>
+      <p>Cientos de conectores ya escritos: PDFs, Notion, SQL, y ~40 bases vectoriales.</p>
+    </div>
+  </div>
+  <p class="muted" style="margin-top:1.2em">No es un modelo ni una base de datos. Es la <em>tubería</em> que los une.</p>
+</section>
+
+<section>
+  <h2>Los bloques de construcción</h2>
+  <table>
+    <thead><tr><th style="width:22%">Componente</th><th style="width:38%">Qué hace</th><th>En nuestro proyecto</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Model</strong></td><td>Interfaz uniforme con el LLM</td><td><code>ChatOllama(model="qwen2.5:7b")</code></td></tr>
+      <tr><td><strong>Prompt</strong></td><td>Plantilla reutilizable de instrucciones</td><td>El <code>SystemMessage</code> con las reglas del agente</td></tr>
+      <tr><td><strong>Embeddings</strong></td><td>Texto → vector numérico</td><td><code>OllamaEmbeddings("nomic-embed-text")</code></td></tr>
+      <tr><td><strong>Vector store</strong></td><td>Guarda y busca vectores</td><td><code>Chroma</code></td></tr>
+      <tr><td><strong>Retriever</strong></td><td>Devuelve los fragmentos relevantes</td><td><code>similarity_search_with_score(k=4)</code></td></tr>
+      <tr><td><strong>Tool</strong></td><td>Función que el modelo puede invocar</td><td><code>buscar_en_documentos</code>, <code>calculadora</code>…</td></tr>
+      <tr><td><strong>Agent</strong></td><td>Decide qué herramienta usar y cuándo</td><td><code>create_react_agent</code> (LangGraph)</td></tr>
+      <tr><td><strong>Memory</strong></td><td>Conserva el hilo de la conversación</td><td>Lista de mensajes recortada a los últimos 20</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>LCEL: componer con <code>|</code></h2>
+  <p>LangChain Expression Language usa el operador de tubería para encadenar pasos. Cada pieza recibe la salida de la anterior:</p>
+  <pre><code class="language-python" data-trim data-noescape>
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_ollama import ChatOllama
+
+prompt = ChatPromptTemplate.from_template(
+    "Resume en una frase: {texto}"
+)
+modelo = ChatOllama(model="qwen2.5:7b", base_url="http://ollama:11434")
+
+cadena = prompt | modelo | StrOutputParser()
+
+cadena.invoke({"texto": "..."})          # síncrono
+await cadena.ainvoke({"texto": "..."})   # asíncrono, gratis
+cadena.batch([{...}, {...}])             # en lote, paralelizado
+for token in cadena.stream({...}): ...   # streaming token a token
+  </code></pre>
+  <p class="muted">Lo importante: <code>invoke</code>, <code>stream</code>, <code>batch</code> y sus versiones async salen <em>gratis</em> al componer con <code>|</code>. No hay que implementarlas.</p>
+</section>
+
+<section>
+  <h2>Herramientas: darle manos al modelo</h2>
+  <p>Una herramienta es una función de Python. El <strong>docstring no es decorativo</strong>: es el texto que el modelo lee para decidir si la usa.</p>
+  <pre><code class="language-python" data-trim data-noescape>
+from langchain_core.tools import tool
+
+@tool
+def buscar_en_documentos(consulta: str) -> str:
+    """Busca información en la base de datos vectorial del usuario.
+
+    Úsala SIEMPRE que la pregunta se refiera al contenido de los
+    documentos, informes o PDFs que el usuario haya cargado. Es la
+    única forma de acceder a esa información.
+
+    Args:
+        consulta: La pregunta a buscar, en lenguaje natural.
+    """
+    resultados = store.similarity_search_with_score(consulta, k=4)
+    ...
+  </code></pre>
+  <div class="grid grid-2" style="margin-top:0.5em">
+    <div class="card accent-3"><h4>Buen docstring</h4><p>Dice <em>cuándo</em> usarla y qué la hace única. El modelo acierta.</p></div>
+    <div class="card accent-2"><h4>Mal docstring</h4><p>"Busca cosas." El modelo la ignora o la usa fuera de lugar.</p></div>
+  </div>
+  <aside class="notes">
+    Insistir aquí: el 80% de los fallos de un agente que "no usa las
+    herramientas" se arreglan reescribiendo docstrings, no cambiando de modelo.
+  </aside>
+</section>
+
+<section>
+  <h2>Cadena vs. Agente</h2>
+  <p>La distinción más importante de toda la sesión — y la que más se confunde.</p>
+  <table style="margin-top:0.8em">
+    <thead><tr><th style="width:20%"></th><th style="width:40%">Cadena (chain)</th><th>Agente (agent)</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Flujo</strong></td><td>Fijo, lo escribes tú</td><td>Dinámico, lo decide el modelo</td></tr>
+      <tr><td><strong>Pasos</strong></td><td>Siempre los mismos</td><td>Variables según la pregunta</td></tr>
+      <tr><td><strong>Ejemplo</strong></td><td>Buscar → responder, siempre</td><td>¿Busco? ¿Calculo? ¿Ambos? ¿Ninguno?</td></tr>
+      <tr><td><strong>Coste</strong></td><td>1 llamada al LLM</td><td>N llamadas (una por iteración)</td></tr>
+      <tr><td><strong>Previsible</strong></td><td><span class="badge badge-good">Alta</span></td><td><span class="badge badge-warn">Media</span></td></tr>
+      <tr><td><strong>Flexible</strong></td><td><span class="badge badge-warn">Baja</span></td><td><span class="badge badge-good">Alta</span></td></tr>
+    </tbody>
+  </table>
+  <p class="muted" style="margin-top:1em"><strong>Regla práctica:</strong> si siempre haces los mismos pasos, usa una cadena. El agente solo se justifica cuando el camino depende de la pregunta.</p>
+</section>
+
+<section>
+  <h2>El bucle ReAct</h2>
+  <p>Es lo que ejecuta <code>create_react_agent</code> por dentro. <em>ReAct</em> = <em>Reasoning + Acting</em>.</p>
+  <div class="flow">
+    <div class="flow-step"><span class="t">Pregunta</span><span class="d">"¿Cuánto suman los costes del informe?"</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step"><span class="t">Modelo razona</span><span class="d">"Necesito los datos: uso buscar_en_documentos"</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step"><span class="t">Ejecuta la tool</span><span class="d">Devuelve 4 fragmentos con cifras</span></div>
+  </div>
+  <div class="flow">
+    <div class="flow-step" style="border-top-color:var(--series-2)"><span class="t">Modelo razona</span><span class="d">"Ahora sumo: uso calculadora"</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step" style="border-top-color:var(--series-2)"><span class="t">Ejecuta la tool</span><span class="d">1250 + 3400 = 4650</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step" style="border-top-color:var(--series-3)"><span class="t">Responde</span><span class="d">Con la cifra y la cita de la fuente</span></div>
+  </div>
+  <p class="muted" style="margin-top:1em">El bucle termina cuando el modelo responde <strong>sin</strong> pedir más herramientas. Conviene poner un tope de iteraciones: un agente mal instruido puede quedarse dando vueltas.</p>
+</section>
+
+<section>
+  <h2>El ecosistema</h2>
+  <div class="grid grid-3">
+    <div class="card accent-1">
+      <h4>LangChain</h4>
+      <p>Los componentes y las integraciones. El punto de partida.</p>
+      <p style="margin-top:0.7em" class="muted">Cadenas lineales, retrievers, loaders.</p>
+    </div>
+    <div class="card accent-2">
+      <h4>LangGraph</h4>
+      <p>Flujos como grafo de estados: ciclos, ramas, puntos de control, intervención humana.</p>
+      <p style="margin-top:0.7em" class="muted">Es lo que usamos para el agente.</p>
+    </div>
+    <div class="card accent-3">
+      <h4>LangSmith</h4>
+      <p>Observabilidad: traza cada llamada, mide latencia y coste, evalúa calidad.</p>
+      <p style="margin-top:0.7em" class="muted">Opcional y de pago; no lo usamos aquí.</p>
+    </div>
+  </div>
+  <p class="muted" style="margin-top:1.4em">Alternativas del mercado: <strong>LlamaIndex</strong> (más centrado en indexación y RAG), <strong>Haystack</strong> (pipelines de búsqueda), o directamente el SDK del proveedor si el caso es simple.</p>
+</section>
+
+<!-- ══════════════════ PARTE 2 ══════════════════ -->
+<section class="divider">
+  <span class="num">2</span>
+  <h2>Embeddings y bases vectoriales</h2>
+  <p class="muted">Cómo se busca por significado y no por palabras</p>
+</section>
+
+<section>
+  <h2>El límite de la búsqueda por palabras</h2>
+  <p>Un buscador tradicional compara cadenas de texto. Si el usuario pregunta:</p>
+  <div class="card accent-1" style="margin:1em 0">
+    <p style="font-size:1em;color:var(--text-primary)">«¿Cómo reduzco el gasto energético de la planta?»</p>
+  </div>
+  <p>…un documento que dice <em>«optimización del consumo eléctrico de la instalación»</em> es la respuesta perfecta — y <strong>no comparte ni una palabra clave</strong>.</p>
+  <p style="margin-top:1.2em">Necesitamos comparar <strong>significados</strong>, no caracteres. Para eso hay que convertir el texto en algo que se pueda medir: <em>números</em>.</p>
+</section>
+
+<section>
+  <h2>Qué es un embedding</h2>
+  <p>Un modelo de embeddings convierte un texto en un <strong>vector</strong>: una lista de números que codifica su significado.</p>
+  <pre><code class="language-python" data-trim data-noescape>
+embeddings = OllamaEmbeddings(model="nomic-embed-text")
+
+v = embeddings.embed_query("El gato duerme en el sofá")
+
+len(v)    # 768  -> 768 dimensiones
+v[:5]     # [0.0231, -0.0417, 0.0128, 0.0093, -0.0356]
+  </code></pre>
+  <p style="margin-top:1em">Cada dimensión no tiene un nombre legible. Lo que importa es la <strong>posición relativa</strong>: textos con significado parecido caen cerca unos de otros en ese espacio de 768 dimensiones.</p>
+  <p class="muted"><strong>Regla crítica:</strong> el mismo modelo debe usarse para indexar y para consultar. Dos modelos distintos generan espacios incompatibles y las distancias dejan de significar nada.</p>
+</section>
+
+<section>
+  <h2>El espacio vectorial</h2>
+  <figure>
+    <svg viewBox="0 0 760 380" width="100%" height="380" role="img"
+         aria-label="Diagrama de un espacio de embeddings: dos grupos temáticos separados, animales y tecnología, y una consulta que cae dentro del grupo de animales, unida por líneas a sus tres vecinos más cercanos.">
+      <rect x="0" y="0" width="760" height="380" fill="#1a1a19" rx="12"/>
+
+      <!-- ejes recesivos, hairline sólido -->
+      <line x1="60" y1="330" x2="710" y2="330" stroke="#383835" stroke-width="1"/>
+      <line x1="60" y1="40"  x2="60"  y2="330" stroke="#383835" stroke-width="1"/>
+      <text x="385" y="360" fill="#898781" font-size="12" font-family="system-ui" text-anchor="middle">dimensión 1 (de 768)</text>
+      <text x="30" y="185" fill="#898781" font-size="12" font-family="system-ui" text-anchor="middle" transform="rotate(-90 30 185)">dimensión 2</text>
+
+      <!-- radio de recuperación k=3 alrededor de la consulta -->
+      <circle cx="205" cy="150" r="88" fill="rgba(25,158,112,0.09)" stroke="#199e70" stroke-width="1.5" stroke-dasharray="5 5"/>
+
+      <!-- líneas consulta -> vecinos recuperados -->
+      <g stroke="#199e70" stroke-width="1.5" opacity="0.75">
+        <line x1="205" y1="150" x2="150" y2="105"/>
+        <line x1="205" y1="150" x2="255" y2="95"/>
+        <line x1="205" y1="150" x2="168" y2="205"/>
+      </g>
+
+      <!-- grupo 1: animales (azul, serie 1) -->
+      <g fill="#3987e5">
+        <circle cx="150" cy="105" r="9" stroke="#1a1a19" stroke-width="2"/>
+        <circle cx="255" cy="95"  r="9" stroke="#1a1a19" stroke-width="2"/>
+        <circle cx="168" cy="205" r="9" stroke="#1a1a19" stroke-width="2"/>
+        <circle cx="112" cy="160" r="9" stroke="#1a1a19" stroke-width="2"/>
+        <circle cx="238" cy="188" r="9" stroke="#1a1a19" stroke-width="2"/>
+      </g>
+      <text x="150" y="72" fill="#3987e5" font-size="14" font-family="system-ui" font-weight="650">Animales</text>
+      <text x="150" y="90" fill="#898781" font-size="11" font-family="system-ui">gato · perro · felino</text>
+
+      <!-- grupo 2: tecnología (naranja, serie 2) -->
+      <g fill="#d95926">
+        <circle cx="545" cy="238" r="9" stroke="#1a1a19" stroke-width="2"/>
+        <circle cx="620" cy="205" r="9" stroke="#1a1a19" stroke-width="2"/>
+        <circle cx="592" cy="285" r="9" stroke="#1a1a19" stroke-width="2"/>
+        <circle cx="500" cy="290" r="9" stroke="#1a1a19" stroke-width="2"/>
+        <circle cx="655" cy="265" r="9" stroke="#1a1a19" stroke-width="2"/>
+      </g>
+      <text x="500" y="205" fill="#d95926" font-size="14" font-family="system-ui" font-weight="650">Tecnología</text>
+      <text x="500" y="223" fill="#898781" font-size="11" font-family="system-ui">servidor · red · CPU</text>
+
+      <!-- consulta (aqua, serie 3) -->
+      <circle cx="205" cy="150" r="11" fill="#199e70" stroke="#1a1a19" stroke-width="2"/>
+      <text x="222" y="146" fill="#199e70" font-size="14" font-family="system-ui" font-weight="650">Consulta</text>
+      <text x="222" y="164" fill="#898781" font-size="11" font-family="system-ui">«¿qué mascota tengo?»</text>
+
+      <!-- anotación de distancia -->
+      <text x="330" y="330" fill="#898781" font-size="11" font-family="system-ui">lejos = significados distintos</text>
+    </svg>
+    <div class="legend">
+      <span class="legend-item"><span class="legend-swatch" style="background:#3987e5"></span>Fragmentos sobre animales</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:#d95926"></span>Fragmentos sobre tecnología</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:#199e70"></span>Vector de la consulta · <em style="color:var(--text-secondary)">k=3 recuperados</em></span>
+    </div>
+    <figcaption>Proyección conceptual en 2D de un espacio real de 768 dimensiones. La consulta no comparte palabras con los documentos: comparte <em>posición</em>.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Medir la cercanía</h2>
+  <div class="grid grid-3">
+    <div class="card accent-1">
+      <h4>Coseno</h4>
+      <p>Mide el <strong>ángulo</strong> entre vectores, ignorando su longitud. Un texto largo y uno corto sobre el mismo tema salen cercanos.</p>
+      <p style="margin-top:0.6em" class="muted">El estándar de facto en NLP.</p>
+    </div>
+    <div class="card accent-2">
+      <h4>Euclidiana (L2)</h4>
+      <p>Distancia en línea recta. Sensible a la magnitud del vector. Equivale al coseno si los vectores están normalizados.</p>
+      <p style="margin-top:0.6em" class="muted">Es la que usa Chroma por defecto.</p>
+    </div>
+    <div class="card accent-3">
+      <h4>Producto interno</h4>
+      <p>El más rápido de calcular. Requiere vectores normalizados para comportarse bien.</p>
+      <p style="margin-top:0.6em" class="muted">Común en catálogos muy grandes.</p>
+    </div>
+  </div>
+  <p style="margin-top:1.4em"><strong>Ojo con el signo:</strong> Chroma devuelve <em>distancia</em>, no similitud. <span class="badge badge-good">menor = más parecido</span> — al revés de lo que sugiere la palabra «score».</p>
+</section>
+
+<section>
+  <h2>Por qué hace falta un índice</h2>
+  <p>Con 1 000 fragmentos, comparar la consulta contra todos es instantáneo. Con 10 millones, no.</p>
+  <div class="grid grid-2" style="margin-top:1em">
+    <div class="card accent-2">
+      <h4>Fuerza bruta (<em>flat</em>)</h4>
+      <p>Compara con los N vectores. Exacto pero lineal: el tiempo crece con el corpus.</p>
+      <p style="margin-top:0.6em" class="muted">Bien hasta ~100 000 vectores.</p>
+    </div>
+    <div class="card accent-3">
+      <h4>Búsqueda aproximada (<em>ANN</em>)</h4>
+      <p>Renuncia a la garantía de exactitud a cambio de una búsqueda casi logarítmica.</p>
+      <p style="margin-top:0.6em" class="muted">Recupera ~95-99% de los vecinos reales, cientos de veces más rápido.</p>
+    </div>
+  </div>
+  <p style="margin-top:1.2em"><strong>HNSW</strong> es el algoritmo más usado (y el de Chroma): construye un grafo por capas donde las capas superiores tienen conexiones largas para «saltar» a la zona correcta, y las inferiores conexiones cortas para afinar. Es como un mapa de rutas: primero la autopista, luego la calle.</p>
+</section>
+
+<section>
+  <h2>Qué es realmente una base vectorial</h2>
+  <p>No es solo un archivo de vectores. Es un motor con cuatro responsabilidades:</p>
+  <div class="flow" style="margin-top:1.2em">
+    <div class="flow-step"><span class="t">Almacenar</span><span class="d">Vectores + el texto original + metadatos</span></div>
+    <span class="flow-arrow">·</span>
+    <div class="flow-step"><span class="t">Indexar</span><span class="d">Estructuras ANN (HNSW, IVF) para buscar rápido</span></div>
+    <span class="flow-arrow">·</span>
+    <div class="flow-step"><span class="t">Filtrar</span><span class="d">Combinar similitud con condiciones sobre metadatos</span></div>
+    <span class="flow-arrow">·</span>
+    <div class="flow-step"><span class="t">Persistir</span><span class="d">Sobrevivir a reinicios, escalar, replicar</span></div>
+  </div>
+  <p style="margin-top:1.4em">El <strong>filtrado por metadatos</strong> es lo que la hace útil en producción — «busca en documentos de 2026, del departamento de ingeniería, que este usuario pueda ver»:</p>
+  <pre><code class="language-python" data-trim data-noescape>
+store.similarity_search(
+    "consumo energético",
+    k=4,
+    filter={"fuente": "informe_ISA.pdf"},   # filtro sobre metadatos
+)
+  </code></pre>
+</section>
+
+<section>
+  <h2>El panorama de opciones</h2>
+  <table>
+    <thead><tr><th style="width:15%">Opción</th><th style="width:16%">Modelo</th><th style="width:34%">Fuerte en</th><th>Cuándo elegirla</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Chroma</strong></td><td>Embebida o servidor</td><td>Arranque inmediato, API mínima</td><td>Prototipos, proyectos medianos <span class="badge badge-good">la nuestra</span></td></tr>
+      <tr><td><strong>FAISS</strong></td><td>Librería</td><td>Velocidad pura, soporte GPU</td><td>Investigación, índices en memoria</td></tr>
+      <tr><td><strong>Qdrant</strong></td><td>Servidor</td><td>Filtrado avanzado, escrito en Rust</td><td>Producción con metadatos complejos</td></tr>
+      <tr><td><strong>Weaviate</strong></td><td>Servidor</td><td>Búsqueda híbrida integrada</td><td>Cuando hace falta léxico + semántico</td></tr>
+      <tr><td><strong>Milvus</strong></td><td>Distribuida</td><td>Miles de millones de vectores</td><td>Escala muy grande</td></tr>
+      <tr><td><strong>pgvector</strong></td><td>Extensión de Postgres</td><td>Vectores junto a tus datos relacionales</td><td>Si ya tienes Postgres y no quieres otro servicio</td></tr>
+      <tr><td><strong>Pinecone</strong></td><td>SaaS gestionado</td><td>Cero operaciones</td><td>Si no quieres administrar infraestructura</td></tr>
+    </tbody>
+  </table>
+  <p class="muted" style="margin-top:1.2em">LangChain expone <strong>la misma interfaz</strong> para todas: migrar de Chroma a Qdrant es cambiar la clase que instancias, no el resto del código.</p>
+</section>
+
+<!-- ══════════════════ PARTE 3 ══════════════════ -->
+<section class="divider">
+  <span class="num">3</span>
+  <h2>RAG</h2>
+  <p class="muted">Retrieval-Augmented Generation: juntar las dos mitades</p>
+</section>
+
+<section>
+  <h2>El pipeline completo</h2>
+  <p class="kicker">Fase 1 — Indexación (una vez, o cada vez que cambian los documentos)</p>
+  <div class="flow">
+    <div class="flow-step"><span class="t">Cargar</span><span class="d">PDF, DOCX, TXT → texto plano</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step"><span class="t">Fragmentar</span><span class="d">Trozos de ~1000 caracteres</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step"><span class="t">Embeber</span><span class="d">Cada trozo → vector de 768 dims</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step"><span class="t">Almacenar</span><span class="d">Vector + texto + metadatos en Chroma</span></div>
+  </div>
+
+  <p class="kicker" style="margin-top:1.5em">Fase 2 — Consulta (en cada pregunta)</p>
+  <div class="flow">
+    <div class="flow-step" style="border-top-color:var(--series-2)"><span class="t">Pregunta</span><span class="d">Se convierte en vector con el <em>mismo</em> modelo</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step" style="border-top-color:var(--series-2)"><span class="t">Recuperar</span><span class="d">Los k fragmentos más cercanos</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step" style="border-top-color:var(--series-2)"><span class="t">Aumentar</span><span class="d">Se inyectan en el prompt como contexto</span></div>
+    <span class="flow-arrow">→</span>
+    <div class="flow-step" style="border-top-color:var(--series-3)"><span class="t">Generar</span><span class="d">El LLM responde citando la fuente</span></div>
+  </div>
+  <p class="muted" style="margin-top:1.4em">El modelo nunca se reentrena. Solo se le da mejor contexto — por eso RAG es tan barato comparado con un <em>fine-tuning</em>.</p>
+</section>
+
+<section>
+  <h2>Fragmentar: el parámetro que más importa</h2>
+  <p>Es donde se gana o se pierde la calidad del sistema, y casi nadie le dedica tiempo.</p>
+  <div class="grid grid-2" style="margin-top:1em">
+    <div class="card accent-2">
+      <h4>Fragmento demasiado grande</h4>
+      <ul>
+        <li>El vector «promedia» varios temas</li>
+        <li>La búsqueda pierde precisión</li>
+        <li>Se gasta contexto en texto irrelevante</li>
+      </ul>
+    </div>
+    <div class="card accent-2">
+      <h4>Fragmento demasiado pequeño</h4>
+      <ul>
+        <li>Se pierde el contexto necesario</li>
+        <li>Las referencias quedan huérfanas («esto», «dicho valor»)</li>
+        <li>Hacen falta más fragmentos para responder</li>
+      </ul>
+    </div>
+  </div>
+  <pre style="margin-top:1em"><code class="language-python" data-trim data-noescape>
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=1000,      # ~250 palabras: un párrafo largo
+    chunk_overlap=150,    # solapamiento: evita cortar una idea por la mitad
+    separators=["\n\n", "\n", ". ", " ", ""],  # se intenta en este orden
+)
+  </code></pre>
+  <p class="muted"><em>Recursive</em> significa que intenta cortar primero por párrafos, luego por líneas, luego por frases, y solo al final por caracteres sueltos — así respeta la estructura del texto.</p>
+</section>
+
+<section>
+  <h2>Errores frecuentes</h2>
+  <table>
+    <thead><tr><th style="width:34%">Error</th><th style="width:32%">Síntoma</th><th>Solución</th></tr></thead>
+    <tbody>
+      <tr><td>Cambiar el modelo de embeddings sin reindexar</td><td>Resultados sin sentido</td><td><code>ingest --reset</code>: los vectores viejos son de otro espacio</td></tr>
+      <tr><td><code>k</code> demasiado alto</td><td>Respuestas difusas, contexto desbordado</td><td>Empezar en 4 y subir solo si falta información</td></tr>
+      <tr><td>PDF escaneado sin OCR</td><td>0 fragmentos indexados</td><td>Pasar OCR antes de la ingesta</td></tr>
+      <tr><td>Sin metadatos de fuente</td><td>Imposible citar o auditar</td><td>Guardar archivo y página en cada fragmento</td></tr>
+      <tr><td>Temperatura alta en RAG</td><td>El modelo adorna y se aleja del contexto</td><td>Bajar a 0–0.2</td></tr>
+      <tr><td>No decir «no sé»</td><td>Alucinación con tono seguro</td><td>Instrucción explícita en el prompt de sistema</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ══════════════════ PARTE 4 ══════════════════ -->
+<section class="divider">
+  <span class="num">4</span>
+  <h2>El proyecto</h2>
+  <p class="muted">Todo local, todo en Docker, sin API externas</p>
+</section>
+
+<section>
+  <h2>Arquitectura</h2>
+  <div class="flow" style="margin-top:1.5em">
+    <div class="flow-step" style="border-top-color:var(--series-3)">
+      <span class="t">app</span>
+      <span class="d">Python 3.12<br>LangChain + LangGraph<br>La CLI del agente</span>
+    </div>
+    <span class="flow-arrow">⇄</span>
+    <div class="flow-step">
+      <span class="t">ollama</span>
+      <span class="d">Sirve Qwen 2.5 (chat)<br>y nomic-embed-text<br>Puerto 11434</span>
+    </div>
+    <span class="flow-arrow">⇄</span>
+    <div class="flow-step" style="border-top-color:var(--series-2)">
+      <span class="t">chroma</span>
+      <span class="d">Base vectorial<br>Persistida en volumen<br>Puerto 8000</span>
+    </div>
+    <span class="flow-arrow">·</span>
+    <div class="flow-step" style="border-top-color:var(--series-7)">
+      <span class="t">slides</span>
+      <span class="d">nginx sirviendo<br>esta presentación<br>Puerto 8080</span>
+    </div>
+  </div>
+  <div class="grid grid-2" style="margin-top:1.6em">
+    <div class="card accent-3">
+      <h4>Por qué contenedores separados</h4>
+      <p>Cada servicio escala y se reinicia por su cuenta. Los modelos viven en un volumen: recrear la app no obliga a bajar 5 GB otra vez.</p>
+    </div>
+    <div class="card accent-1">
+      <h4>Privacidad total</h4>
+      <p>Ningún dato sale de la máquina. Ni el documento, ni la pregunta, ni la respuesta. Relevante para información confidencial.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>La ingesta</h2>
+  <pre><code class="language-python" data-trim data-noescape>
+# 1. Cargar — un loader por tipo de archivo
+documentos = PyPDFLoader(str(ruta)).load()   # un Document por página
+
+# 2. Fragmentar
+splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
+fragmentos = splitter.split_documents(documentos)
+
+# 3. Metadatos: sin esto no se puede citar ni filtrar
+for i, fragmento in enumerate(fragmentos):
+    fragmento.metadata["fuente"] = fuente
+    fragmento.metadata["fragmento"] = i
+
+# 4. Reingesta idempotente: borrar lo viejo de este archivo antes de insertar
+store._collection.delete(where={"fuente": fuente})
+
+# 5. Embeber y almacenar — aquí es donde se llama al modelo de embeddings
+store.add_documents(fragmentos)
+  </code></pre>
+  <p class="muted">El paso 4 es el que evita que ejecutar la ingesta dos veces duplique todo el corpus — un error clásico que degrada la búsqueda en silencio.</p>
+</section>
+
+<section>
+  <h2>El agente</h2>
+  <pre><code class="language-python" data-trim data-noescape>
+from langgraph.prebuilt import create_react_agent
+from langchain_ollama import ChatOllama
+
+llm = ChatOllama(
+    model="qwen2.5:7b",
+    base_url="http://ollama:11434",
+    temperature=0.1,          # bajo: en RAG queremos fidelidad, no creatividad
+)
+
+agente = create_react_agent(llm, HERRAMIENTAS)
+
+resultado = agente.invoke({"messages": [
+    SystemMessage(content=INSTRUCCIONES),
+    *historial[-20:],         # memoria recortada: el contexto es finito
+    HumanMessage(content=pregunta),
+]})
+
+respuesta = resultado["messages"][-1].content
+  </code></pre>
+  <p class="muted">Qwen 2.5 soporta <em>tool calling</em> nativo, que es justo lo que el bucle ReAct necesita. Un modelo sin esa capacidad obligaría a un ReAct por texto plano, mucho más frágil.</p>
+</section>
+
+<section>
+  <h2>Demo</h2>
+  <pre><code class="language-bash" data-trim data-noescape>
+# 1. Levantar todo (la primera vez descarga los modelos, ~5 GB)
+docker compose up -d
+
+# 2. Copiar documentos en docs/ e indexarlos
+docker compose run --rm app ingest
+
+# 3. Comprobar que todo responde
+docker compose run --rm app status
+
+# 4. Conversar con el agente
+docker compose run --rm app chat
+  </code></pre>
+  <div class="grid grid-3" style="margin-top:1.2em">
+    <div class="card accent-1"><h4>Sin herramientas</h4><p>«¿Qué es un embedding?» → responde directamente.</p></div>
+    <div class="card accent-2"><h4>Una herramienta</h4><p>«¿Qué dice el informe sobre X?» → busca en la BD vectorial.</p></div>
+    <div class="card accent-3"><h4>Dos herramientas</h4><p>«Suma los costes del informe» → busca y luego calcula.</p></div>
+  </div>
+  <p class="muted" style="margin-top:1.2em">La CLI muestra en vivo qué herramienta invoca el agente en cada paso — es lo que hace visible el razonamiento.</p>
+</section>
+
+<section>
+  <h2>Limitaciones honestas</h2>
+  <div class="grid grid-2">
+    <div class="card accent-2">
+      <h4>Velocidad en Docker sobre Mac</h4>
+      <p>Los contenedores no acceden a la GPU (Metal). Qwen 7B corre en CPU: funciona, pero responde en decenas de segundos. Para demos en vivo, <code>qwen2.5:3b</code> va unas 3× más rápido.</p>
+    </div>
+    <div class="card accent-2">
+      <h4>Calidad vs. modelos grandes</h4>
+      <p>Un modelo local de 7B razona peor que GPT-4 o Claude. A cambio: privacidad total, coste cero por consulta y funcionamiento sin conexión.</p>
+    </div>
+    <div class="card accent-2">
+      <h4>RAG no es magia</h4>
+      <p>Si la respuesta no está en los documentos, o la fragmentación la partió mal, el sistema no la encontrará. La calidad del corpus manda.</p>
+    </div>
+    <div class="card accent-2">
+      <h4>Sin OCR</h4>
+      <p>Los PDF escaneados no producen texto extraíble. Habría que añadir una etapa de OCR antes de la ingesta.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Si quieres llevarlo más lejos</h2>
+  <div class="grid grid-2">
+    <div class="card accent-3">
+      <h4>Búsqueda híbrida</h4>
+      <p>Combinar BM25 (léxico) con vectores. Recupera mejor los nombres propios, códigos y siglas, que los embeddings manejan mal.</p>
+    </div>
+    <div class="card accent-3">
+      <h4>Reranking</h4>
+      <p>Recuperar 20 fragmentos y reordenarlos con un <em>cross-encoder</em>, quedándose con los 4 mejores. Suele ser la mejora con mejor relación esfuerzo/resultado.</p>
+    </div>
+    <div class="card accent-3">
+      <h4>Evaluación</h4>
+      <p>Un conjunto de preguntas con respuesta conocida para medir si un cambio mejora o empeora. Sin esto, se optimiza a ciegas.</p>
+    </div>
+    <div class="card accent-3">
+      <h4>Interfaz web</h4>
+      <p>Un Streamlit o FastAPI como contenedor adicional, hablando con los mismos servicios.</p>
+    </div>
+  </div>
+</section>
+
+<section class="cover">
+  <h2 style="font-size:2em">Para recordar</h2>
+  <div style="max-width:900px;margin:1.5em auto 0;text-align:left">
+    <p><strong>1.</strong> LangChain no es un modelo: es la <em>orquestación</em> entre modelos, datos y herramientas.</p>
+    <p><strong>2.</strong> Un embedding convierte significado en <em>posición</em>. Buscar pasa a ser medir distancias.</p>
+    <p><strong>3.</strong> Una base vectorial es un índice ANN + filtrado por metadatos, no un archivo de números.</p>
+    <p><strong>4.</strong> RAG le da <em>contexto</em> al modelo; un agente le da <em>decisiones</em>. Son cosas distintas y se combinan.</p>
+    <p><strong>5.</strong> La calidad de un RAG se decide en la <em>fragmentación</em> y en la calidad del corpus, no en el tamaño del modelo.</p>
+  </div>
+  <p class="muted" style="margin-top:2em">python.langchain.com · docs.trychroma.com · ollama.com/library/qwen2.5</p>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    transition: 'fade',
+    transitionSpeed: 'fast',
+    width: 1280,
+    height: 760,
+    margin: 0.06,
+    plugins: [RevealHighlight, RevealNotes],
+  });
+</script>
+</body>
+</html>

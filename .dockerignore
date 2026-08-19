@@ -1,0 +1,13 @@
+.git
+.idea
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.DS_Store
+.env
+docs/
+chroma_local/
+slides/
+README.md
